@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: uns-mosquitto
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - mosquitto_data:/mosquitto/data
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-t", "healthcheck", "-m", "ok", "-q", "0"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  mixer:
+    build:
+      context: ./simulators
+    container_name: uns-mixer
+    command: python mixer_simulator.py
+    environment:
+      - MQTT_BROKER=mosquitto
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    restart: unless-stopped
+
+  filler:
+    build:
+      context: ./simulators
+    container_name: uns-filler
+    command: python filler_simulator.py
+    environment:
+      - MQTT_BROKER=mosquitto
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    restart: unless-stopped
+
+  warehouse:
+    build:
+      context: ./simulators
+    container_name: uns-warehouse
+    command: python warehouse_simulator.py
+    environment:
+      - MQTT_BROKER=mosquitto
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    restart: unless-stopped
+
+  consumer:
+    build:
+      context: ./consumer
+    container_name: uns-consumer
+    environment:
+      - MQTT_BROKER=mosquitto
+      - DB_PATH=/data/uns.db
+    volumes:
+      - shared_data:/data
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: ./dashboard
+    container_name: uns-dashboard
+    ports:
+      - "8501:8501"
+    environment:
+      - MQTT_BROKER=mosquitto
+      - DB_PATH=/data/uns.db
+    volumes:
+      - shared_data:/data
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+      consumer:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  mosquitto_data:
+  shared_data:
